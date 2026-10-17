@@ -74,6 +74,12 @@ fun MainAppScreen() {
     var showAddReminderDialog by remember { mutableStateOf(false) }
     var showAddTimerDialog by remember { mutableStateOf(false) }
 
+    var availableUpdateVersion by remember { mutableStateOf<String?>(null) }
+    var isCheckingForUpdate by remember { mutableStateOf(false) }
+    var lastUpdateCheckStatus by remember {
+        mutableStateOf(UpdateChecker.getLastUpdateCheckStatus(context))
+    }
+
     var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var remindersList by remember { mutableStateOf(ReminderRepository.getReminders(context)) }
     var storedTimers by remember { mutableStateOf(TimerRepository.getTimers(context)) }
@@ -85,12 +91,30 @@ fun MainAppScreen() {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
+    // Silently check for app updates in the background after the UI is showing
+    LaunchedEffect(Unit) {
+        val result = UpdateChecker.checkForUpdates(context)
+        lastUpdateCheckStatus = UpdateChecker.getLastUpdateCheckStatus(context)
+        if (result is UpdateCheckResult.UpdateAvailable) {
+            val lastAnnounced = UpdateChecker.getLastAnnouncedVersion(context)
+            if (lastAnnounced != result.newVersion) {
+                UpdateChecker.setLastAnnouncedVersion(context, result.newVersion)
+                availableUpdateVersion = result.newVersion
+                UpdateVoiceAnnouncer.speak(
+                    context,
+                    "A new version of Spoken Reminders is available. Version ${result.newVersion}."
+                )
+            }
+        }
+    }
+
     LifecycleResumeEffect(Unit) {
         nowMillis = System.currentTimeMillis()
         allPermissionsGranted = PermissionStatusHelper.areAllCriticalPermissionsGranted(context)
         remindersList = ReminderRepository.getReminders(context)
         storedTimers = TimerRepository.getTimers(context)
         lastAlarmEvent = ReminderRepository.getLastAlarmEvent(context)
+        lastUpdateCheckStatus = UpdateChecker.getLastUpdateCheckStatus(context)
         onPauseOrDispose {}
     }
 
@@ -104,6 +128,7 @@ fun MainAppScreen() {
             remindersList = ReminderRepository.getReminders(context)
             storedTimers = TimerRepository.getTimers(context)
             lastAlarmEvent = ReminderRepository.getLastAlarmEvent(context)
+            lastUpdateCheckStatus = UpdateChecker.getLastUpdateCheckStatus(context)
         }
         prefsReminders.registerOnSharedPreferenceChangeListener(listener)
         prefsTimers.registerOnSharedPreferenceChangeListener(listener)
@@ -144,6 +169,7 @@ fun MainAppScreen() {
             remindersList = ReminderRepository.getReminders(context)
             storedTimers = TimerRepository.getTimers(context)
             lastAlarmEvent = ReminderRepository.getLastAlarmEvent(context)
+            lastUpdateCheckStatus = UpdateChecker.getLastUpdateCheckStatus(context)
         }
     }
 
@@ -327,6 +353,8 @@ fun MainAppScreen() {
     if (showSettingsDialog) {
         SettingsDialog(
             lastAlarmEvent = lastAlarmEvent,
+            lastUpdateCheckStatus = lastUpdateCheckStatus,
+            isCheckingForUpdate = isCheckingForUpdate,
             onDismiss = { showSettingsDialog = false },
             onOpenSetup = {
                 showSettingsDialog = false
@@ -350,6 +378,59 @@ fun MainAppScreen() {
                         message = "Test alarm scheduled for 1 minute from now. You can lock the screen now."
                     )
                 }
+            },
+            onCheckForUpdates = {
+                if (!isCheckingForUpdate) {
+                    isCheckingForUpdate = true
+                    scope.launch {
+                        val result = UpdateChecker.checkForUpdates(context)
+                        lastUpdateCheckStatus = UpdateChecker.getLastUpdateCheckStatus(context)
+                        isCheckingForUpdate = false
+                        when (result) {
+                            is UpdateCheckResult.UpdateAvailable -> {
+                                UpdateChecker.setLastAnnouncedVersion(context, result.newVersion)
+                                showSettingsDialog = false
+                                availableUpdateVersion = result.newVersion
+                                UpdateVoiceAnnouncer.speak(
+                                    context,
+                                    "A new version of Spoken Reminders is available. Version ${result.newVersion}."
+                                )
+                            }
+                            is UpdateCheckResult.UpToDate -> {
+                                UpdateVoiceAnnouncer.speak(
+                                    context,
+                                    "You have the latest version."
+                                )
+                            }
+                            is UpdateCheckResult.Failed -> {
+                                UpdateVoiceAnnouncer.speak(
+                                    context,
+                                    "Update check failed. Please try again later."
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        )
+    }
+
+    val versionToPrompt = availableUpdateVersion
+    if (versionToPrompt != null) {
+        UpdateAvailableDialog(
+            newVersion = versionToPrompt,
+            onDownload = {
+                availableUpdateVersion = null
+                try {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(UpdateChecker.APK_DOWNLOAD_URL)).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(intent)
+                } catch (ignored: Throwable) {
+                }
+            },
+            onDismiss = {
+                availableUpdateVersion = null
             }
         )
     }
@@ -392,6 +473,50 @@ fun MainAppScreen() {
             }
         )
     }
+}
+
+@Composable
+fun UpdateAvailableDialog(
+    newVersion: String,
+    onDownload: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Update available",
+                modifier = Modifier.semantics { heading() }
+            )
+        },
+        text = {
+            Text(
+                text = "A new version of Spoken Reminders is available: Version $newVersion.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = onDownload,
+                modifier = Modifier.semantics {
+                    contentDescription = "Download update version $newVersion"
+                }
+            ) {
+                Text("Download update")
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.semantics {
+                    contentDescription = "Not now"
+                }
+            ) {
+                Text("Not now")
+            }
+        }
+    )
 }
 
 @Composable
@@ -1086,9 +1211,12 @@ fun AddTimerDialog(
 @Composable
 fun SettingsDialog(
     lastAlarmEvent: String,
+    lastUpdateCheckStatus: String,
+    isCheckingForUpdate: Boolean,
     onDismiss: () -> Unit,
     onOpenSetup: () -> Unit,
-    onScheduleTestAlarm: () -> Unit
+    onScheduleTestAlarm: () -> Unit,
+    onCheckForUpdates: () -> Unit
 ) {
     val context = LocalContext.current
 
@@ -1103,7 +1231,7 @@ fun SettingsDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    text = "Review permission setup, test screen-off speech, or open system settings.",
+                    text = "Review permission setup, test screen-off speech, check for app updates, or open system settings.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1139,6 +1267,48 @@ fun SettingsDialog(
                         )
                         Text(
                             text = lastAlarmEvent,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                Button(
+                    onClick = onCheckForUpdates,
+                    enabled = !isCheckingForUpdate,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics {
+                            contentDescription = if (isCheckingForUpdate) {
+                                "Checking for updates"
+                            } else {
+                                "Check for updates. Checks for a newer app release and announces the result out loud."
+                            }
+                        }
+                ) {
+                    Text(if (isCheckingForUpdate) "Checking for updates..." else "Check for updates")
+                }
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "Last update check",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = lastUpdateCheckStatus,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

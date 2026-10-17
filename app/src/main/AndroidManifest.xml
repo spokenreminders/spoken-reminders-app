@@ -2,6 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.example.ttsreminder">
 
+    <!-- Needed to check GitHub for app updates -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- Permissions for scheduling exact alarms and speaking in the background -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
