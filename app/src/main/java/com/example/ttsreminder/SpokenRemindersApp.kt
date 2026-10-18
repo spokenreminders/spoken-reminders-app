@@ -7,6 +7,7 @@ class SpokenRemindersApp : Application() {
     override fun onCreate() {
         super.onCreate()
         installUncaughtExceptionRecorder()
+        BroadcastChecker.schedulePeriodicChecks(this)
     }
 
     private fun installUncaughtExceptionRecorder() {
@@ -26,3 +27,4 @@ class SpokenRemindersApp : Application() {
         }
     }
 }
+

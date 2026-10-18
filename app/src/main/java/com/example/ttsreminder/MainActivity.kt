@@ -108,6 +108,11 @@ fun MainAppScreen() {
         }
     }
 
+    // Silently check for developer broadcast messages in the background after the UI is showing
+    LaunchedEffect(Unit) {
+        BroadcastChecker.checkNow(context)
+    }
+
     LifecycleResumeEffect(Unit) {
         nowMillis = System.currentTimeMillis()
         allPermissionsGranted = PermissionStatusHelper.areAllCriticalPermissionsGranted(context)
