@@ -1,6 +1,6 @@
 {
-  "id": "2026-10-18-first-broadcast",
+  "id": "2026-10-18-test-message-2",
   "title": "Spoken Reminders",
-  "message": "Hello from Harish! This is the first broadcast message to all Spoken Reminders users. Festival wishes and announcements will arrive here.",
+  "message": "This is test message number two from Harish. If your phone showed or spoke this, broadcast messages are working.",
   "speak": true
 }
