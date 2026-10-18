@@ -87,7 +87,6 @@ object BroadcastChecker {
             val titleRaw = json.optString("title", "Spoken Reminders").trim()
             val title = if (titleRaw.isNotEmpty()) titleRaw else "Spoken Reminders"
             val message = json.optString("message", "").trim()
-            val speak = json.optBoolean("speak", false)
 
             if (id.isEmpty() || message.isEmpty() || message.length > MAX_MESSAGE_LENGTH) {
                 saveStatus(appContext, "Invalid broadcast payload")
@@ -104,13 +103,6 @@ object BroadcastChecker {
             saveStatus(appContext, "Delivered ($id)")
 
             postBroadcastNotification(appContext, title, message)
-
-            if (speak) {
-                try {
-                    UpdateVoiceAnnouncer.speak(appContext, "Message from Harish. $message")
-                } catch (ignored: Throwable) {
-                }
-            }
         } catch (t: Throwable) {
             saveStatus(appContext, "Check failed: ${t.javaClass.simpleName}")
         } finally {
