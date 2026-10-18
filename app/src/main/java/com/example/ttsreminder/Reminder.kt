@@ -4,6 +4,7 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.media.AudioManager
 import android.os.Build
 import org.json.JSONArray
 import org.json.JSONObject
@@ -11,6 +12,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import kotlin.math.roundToInt
 
 data class Reminder(
     val id: Int,
@@ -25,11 +27,43 @@ data class Reminder(
     }
 }
 
+object SpeechAudioGuard {
+    fun ensureAlarmAudible(context: Context, audioManager: AudioManager?): String {
+        return try {
+            val am = audioManager
+                ?: (context.applicationContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager)
+                ?: return "alarm vol unknown (no AudioManager)"
+
+            val maxVol = am.getStreamMaxVolume(AudioManager.STREAM_ALARM).coerceAtLeast(1)
+            val currentVol = am.getStreamVolume(AudioManager.STREAM_ALARM)
+            val isMuted = am.isStreamMute(AudioManager.STREAM_ALARM)
+
+            if (isMuted || currentVol <= 0) {
+                val targetVol = (maxVol * 0.7f).roundToInt().coerceAtLeast(1).coerceAtMost(maxVol)
+                if (isMuted) {
+                    try {
+                        am.adjustStreamVolume(AudioManager.STREAM_ALARM, AudioManager.ADJUST_UNMUTE, 0)
+                    } catch (ignored: Throwable) {
+                    }
+                }
+                am.setStreamVolume(AudioManager.STREAM_ALARM, targetVol, 0)
+                val newVol = am.getStreamVolume(AudioManager.STREAM_ALARM)
+                "alarm was muted, raised to $newVol/$maxVol"
+            } else {
+                "alarm vol $currentVol/$maxVol"
+            }
+        } catch (t: Throwable) {
+            "alarm vol check error: ${t.javaClass.simpleName}"
+        }
+    }
+}
+
 object ReminderRepository {
     const val PREFS_NAME = "tts_reminders_prefs"
     private const val KEY_REMINDERS = "reminders_json"
     private const val KEY_SETUP_DONE = "setup_completed_v2"
     private const val KEY_LAST_ALARM_EVENT = "last_alarm_event"
+    private const val MAX_EVENT_HISTORY = 8
 
     fun isSetupCompleted(context: Context): Boolean {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -43,13 +77,21 @@ object ReminderRepository {
             .apply()
     }
 
+    @Synchronized
     fun recordAlarmEvent(context: Context, eventNote: String) {
         try {
             val timestamp = SimpleDateFormat("hh:mm:ss a", Locale.getDefault()).format(Date())
             val entry = "$timestamp - $eventNote"
-            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
-                .putString(KEY_LAST_ALARM_EVENT, entry)
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val existingRaw = prefs.getString(KEY_LAST_ALARM_EVENT, null)
+            val existingLines = if (existingRaw.isNullOrBlank() || existingRaw == "No alarm events recorded yet.") {
+                emptyList()
+            } else {
+                existingRaw.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
+            }
+            val updatedLines = (existingLines + entry).takeLast(MAX_EVENT_HISTORY)
+            prefs.edit()
+                .putString(KEY_LAST_ALARM_EVENT, updatedLines.joinToString("\n"))
                 .commit()
         } catch (e: Exception) {
             e.printStackTrace()
@@ -239,3 +281,4 @@ object ReminderScheduler {
         return cal.timeInMillis
     }
 }
+

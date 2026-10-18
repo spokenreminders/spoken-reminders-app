@@ -320,6 +320,9 @@ object UpdateVoiceAnnouncer {
                         }
                     })
 
+                    val volStatus = SpeechAudioGuard.ensureAlarmAudible(context, audioManager)
+                    ReminderRepository.recordAlarmEvent(context, volStatus)
+
                     requestAudioFocus()
                     val params = Bundle().apply {
                         putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_ALARM)
@@ -399,3 +402,4 @@ object UpdateVoiceAnnouncer {
         }
     }
 }
+

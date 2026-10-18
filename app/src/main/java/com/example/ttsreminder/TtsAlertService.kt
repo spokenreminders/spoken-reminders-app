@@ -21,6 +21,7 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import androidx.core.app.NotificationCompat
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedDeque
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -38,6 +39,7 @@ class TtsAlertService : Service(), TextToSpeech.OnInitListener {
     private var isTtsInitialized = false
     private var isDestroyed = false
     private val pendingMessages = ConcurrentLinkedDeque<String>()
+    private val inFlightUtterances = ConcurrentHashMap<String, String>()
     private val activeUtterances = AtomicInteger(0)
     private var wakeLock: PowerManager.WakeLock? = null
     private var audioManager: AudioManager? = null
@@ -61,7 +63,7 @@ class TtsAlertService : Service(), TextToSpeech.OnInitListener {
         } catch (t: Throwable) {
             ReminderRepository.recordAlarmEvent(
                 applicationContext,
-                "onCreate channel FAILED: ${t.javaClass.simpleName}:${t.message}"
+                "onCreate channel FAILED: ${t.javaClass.simpleName}: ${t.message}"
             )
         }
 
@@ -70,7 +72,7 @@ class TtsAlertService : Service(), TextToSpeech.OnInitListener {
         } catch (t: Throwable) {
             ReminderRepository.recordAlarmEvent(
                 applicationContext,
-                "onCreate wakeLock FAILED: ${t.javaClass.simpleName}:${t.message}"
+                "onCreate wakeLock FAILED: ${t.javaClass.simpleName}: ${t.message}"
             )
         }
 
@@ -79,7 +81,7 @@ class TtsAlertService : Service(), TextToSpeech.OnInitListener {
         } catch (t: Throwable) {
             ReminderRepository.recordAlarmEvent(
                 applicationContext,
-                "onCreate audioManager FAILED: ${t.javaClass.simpleName}:${t.message}"
+                "onCreate audioManager FAILED: ${t.javaClass.simpleName}: ${t.message}"
             )
         }
 
@@ -88,7 +90,7 @@ class TtsAlertService : Service(), TextToSpeech.OnInitListener {
         } catch (t: Throwable) {
             ReminderRepository.recordAlarmEvent(
                 applicationContext,
-                "onCreate buildNotif FAILED: ${t.javaClass.simpleName}:${t.message}"
+                "onCreate buildNotif FAILED: ${t.javaClass.simpleName}: ${t.message}"
             )
             null
         }
@@ -107,7 +109,7 @@ class TtsAlertService : Service(), TextToSpeech.OnInitListener {
                 }
                 ReminderRepository.recordAlarmEvent(applicationContext, "service started")
             } catch (t: Throwable) {
-                val errNote = "startForeground FAILED: ${t.javaClass.simpleName}:${t.message}"
+                val errNote = "startForeground FAILED: ${t.javaClass.simpleName}: ${t.message}"
                 ReminderRepository.recordAlarmEvent(applicationContext, errNote)
                 ReminderReceiver.postFallbackFullScreenNotification(
                     context = applicationContext,
@@ -128,10 +130,10 @@ class TtsAlertService : Service(), TextToSpeech.OnInitListener {
         val title = intent?.getStringExtra(ReminderReceiver.EXTRA_TITLE) ?: "Reminder"
         val category = intent?.getStringExtra(ReminderReceiver.EXTRA_CATEGORY) ?: "General"
         val customSpoken = intent?.getStringExtra(ReminderReceiver.EXTRA_SPOKEN_TEXT)
-        val spokenText = customSpoken ?: "$category reminder:$title. Again, $category reminder:$title."
+        val spokenText = customSpoken ?: "$category reminder: $title. Again, $category reminder: $title."
 
         lastAlertTitle = "Reminder: $category"
-        lastAlertBody = "$category:$title"
+        lastAlertBody = "$category: $title"
 
         val extraId = intent?.getIntExtra(ReminderReceiver.EXTRA_ID, -1) ?: -1
         if (extraId != -1) {
@@ -139,13 +141,13 @@ class TtsAlertService : Service(), TextToSpeech.OnInitListener {
         }
 
         try {
-            val notification = buildForegroundNotification("$category:$title")
+            val notification = buildForegroundNotification("$category: $title")
             val nm = getSystemService(NotificationManager::class.java)
             nm.notify(NOTIFICATION_ID, notification)
         } catch (t: Throwable) {
             ReminderRepository.recordAlarmEvent(
                 applicationContext,
-                "onStartCommand notify FAILED: ${t.javaClass.simpleName}:${t.message}"
+                "onStartCommand notify FAILED: ${t.javaClass.simpleName}: ${t.message}"
             )
         }
 
@@ -196,15 +198,13 @@ class TtsAlertService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun pickEngineForRetry(attemptNumber: Int): String? {
-        // Build an ordered list: non-default engines first (e.g., if the default failed while screen-reader engine is active),
-        // followed by the default engine again once the device has been awake for a few seconds.
         val nonDefault = candidateEngines.filter { it != defaultEnginePkg }
         val ordered = mutableListOf<String?>()
         nonDefault.forEach { ordered.add(it) }
         if (!defaultEnginePkg.isNullOrBlank()) {
             ordered.add(defaultEnginePkg)
         }
-        ordered.add(null) // null = system default constructor
+        ordered.add(null)
 
         val index = (attemptNumber - 2).coerceAtLeast(0)
         return ordered.getOrElse(index % ordered.size) { null }
@@ -217,8 +217,6 @@ class TtsAlertService : Service(), TextToSpeech.OnInitListener {
         extendWakeLock()
 
         try {
-            // Use the Service context (`this`) rather than bare applicationContext so service binding
-            // inherits the active Foreground Service's process state and privileges on Android 14.
             tts = if (explicitEngine.isNullOrBlank()) {
                 TextToSpeech(this, this)
             } else {
@@ -235,12 +233,12 @@ class TtsAlertService : Service(), TextToSpeech.OnInitListener {
             val triedLabel = explicitEngine ?: "default($defLabel)"
             ReminderRepository.recordAlarmEvent(
                 applicationContext,
-                "TTS init attempt $attemptNumber started (TTS engine:$triedLabel)"
+                "TTS init attempt $attemptNumber started (TTS engine: $triedLabel)"
             )
         } catch (t: Throwable) {
             ReminderRepository.recordAlarmEvent(
                 applicationContext,
-                "TTS ctor attempt $attemptNumber FAILED: ${t.javaClass.simpleName}:${t.message}"
+                "TTS ctor attempt $attemptNumber FAILED: ${t.javaClass.simpleName}: ${t.message}"
             )
             scheduleNextTtsRetryOrGiveUp(status = TextToSpeech.ERROR)
         }
@@ -280,16 +278,44 @@ class TtsAlertService : Service(), TextToSpeech.OnInitListener {
                     override fun onStart(utteranceId: String?) {}
 
                     override fun onDone(utteranceId: String?) {
-                        mainHandler.post { onUtteranceFinished() }
+                        if (utteranceId != null) {
+                            inFlightUtterances.remove(utteranceId)
+                        }
+                        mainHandler.post {
+                            ReminderRepository.recordAlarmEvent(applicationContext, "speech finished OK")
+                            onUtteranceFinished()
+                        }
                     }
 
                     @Deprecated("Deprecated in Java")
                     override fun onError(utteranceId: String?) {
-                        mainHandler.post { onUtteranceFinished() }
+                        val failedText = if (utteranceId != null) {
+                            inFlightUtterances.remove(utteranceId)
+                        } else {
+                            null
+                        }
+                        mainHandler.post {
+                            activeUtterances.decrementAndGet()
+                            handleSpeakFailure(
+                                text = failedText ?: lastAlertBody,
+                                asyncErrorCode = -1
+                            )
+                        }
                     }
 
                     override fun onError(utteranceId: String?, errorCode: Int) {
-                        mainHandler.post { onUtteranceFinished() }
+                        val failedText = if (utteranceId != null) {
+                            inFlightUtterances.remove(utteranceId)
+                        } else {
+                            null
+                        }
+                        mainHandler.post {
+                            activeUtterances.decrementAndGet()
+                            handleSpeakFailure(
+                                text = failedText ?: lastAlertBody,
+                                asyncErrorCode = errorCode
+                            )
+                        }
                     }
                 })
 
@@ -308,7 +334,7 @@ class TtsAlertService : Service(), TextToSpeech.OnInitListener {
             } else {
                 ReminderRepository.recordAlarmEvent(
                     applicationContext,
-                    "TTS init attempt $currentAttempt failed (status=$status, TTS engine: $activeEnginePkg, default:$defEngine)"
+                    "TTS init attempt $currentAttempt failed (status=$status, TTS engine: $activeEnginePkg, default: $defEngine)"
                 )
                 scheduleNextTtsRetryOrGiveUp(status)
             }
@@ -335,7 +361,6 @@ class TtsAlertService : Service(), TextToSpeech.OnInitListener {
                 startTtsAttempt(attemptNumber = nextAttempt, explicitEngine = nextEngine)
             }, delayMs)
         } else {
-            // All 4 attempts failed: post persistent high-priority full-screen alarm notification
             val fallbackMsg = pendingMessages.peek() ?: lastAlertBody
             ReminderReceiver.postFallbackFullScreenNotification(
                 context = applicationContext,
@@ -357,65 +382,92 @@ class TtsAlertService : Service(), TextToSpeech.OnInitListener {
 
     private fun speakOutLoud(text: String) {
         extendWakeLock()
-        requestAudioFocus()
+
+        val volStatus = SpeechAudioGuard.ensureAlarmAudible(applicationContext, audioManager)
+        ReminderRepository.recordAlarmEvent(applicationContext, volStatus)
+
+        val focusGranted = requestAudioFocus()
+        ReminderRepository.recordAlarmEvent(
+            applicationContext,
+            if (focusGranted) "audio focus granted" else "audio focus DENIED"
+        )
+
         val utteranceId = "REMINDER_UTTERANCE_${System.currentTimeMillis()}_${activeUtterances.incrementAndGet()}"
+        inFlightUtterances[utteranceId] = text
+
         val params = Bundle().apply {
             putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_ALARM)
         }
         val speakResult = tts?.speak(text, TextToSpeech.QUEUE_ADD, params, utteranceId)
         if (speakResult == TextToSpeech.ERROR) {
+            inFlightUtterances.remove(utteranceId)
             activeUtterances.decrementAndGet()
+            handleSpeakFailure(text = text, asyncErrorCode = null)
+        }
+    }
+
+    private fun handleSpeakFailure(text: String, asyncErrorCode: Int? = null) {
+        if (!pendingMessages.contains(text)) {
             pendingMessages.addFirst(text)
-
-            if (speakErrorRetries < MAX_SPEAK_ERROR_RETRIES) {
-                speakErrorRetries++
-                ReminderRepository.recordAlarmEvent(
-                    applicationContext,
-                    "TTS speak() returned ERROR, rebuilding engine (retry $speakErrorRetries)"
-                )
-                try {
-                    tts?.stop()
-                    tts?.shutdown()
-                } catch (t: Throwable) {
-                    t.printStackTrace()
-                }
-                tts = null
-                isTtsInitialized = false
-                startTtsAttempt(attemptNumber = 1, explicitEngine = null)
-            } else {
-                try {
-                    tts?.stop()
-                    tts?.shutdown()
-                } catch (t: Throwable) {
-                    t.printStackTrace()
-                }
-                tts = null
-                isTtsInitialized = false
-
-                val fallbackMsg = pendingMessages.peek() ?: lastAlertBody
-                ReminderReceiver.postFallbackFullScreenNotification(
-                    context = applicationContext,
-                    title = lastAlertTitle,
-                    contentText = fallbackMsg,
-                    reasonNote = "TTS speak() kept failing"
-                )
-                ReminderRepository.recordAlarmEvent(
-                    applicationContext,
-                    "TTS speak retries exhausted, notification shown"
-                )
-                if (reminderToRemoveId != -1) {
-                    ReminderRepository.removeReminderRecordOnly(applicationContext, reminderToRemoveId)
-                    reminderToRemoveId = -1
-                }
-                abandonAudioFocus()
-                stopSelfKeepingNotification()
+        }
+        inFlightUtterances.forEach { (id, msg) ->
+            if (!pendingMessages.contains(msg)) {
+                pendingMessages.addLast(msg)
             }
+            inFlightUtterances.remove(id)
+        }
+        activeUtterances.set(0)
+
+        if (speakErrorRetries < MAX_SPEAK_ERROR_RETRIES) {
+            speakErrorRetries++
+            val logNote = if (asyncErrorCode != null) {
+                "TTS utterance failed async (code $asyncErrorCode), rebuilding engine (retry $speakErrorRetries)"
+            } else {
+                "TTS speak() returned ERROR, rebuilding engine (retry $speakErrorRetries)"
+            }
+            ReminderRepository.recordAlarmEvent(applicationContext, logNote)
+
+            try {
+                tts?.stop()
+                tts?.shutdown()
+            } catch (t: Throwable) {
+                t.printStackTrace()
+            }
+            tts = null
+            isTtsInitialized = false
+            startTtsAttempt(attemptNumber = 1, explicitEngine = null)
+        } else {
+            try {
+                tts?.stop()
+                tts?.shutdown()
+            } catch (t: Throwable) {
+                t.printStackTrace()
+            }
+            tts = null
+            isTtsInitialized = false
+
+            val fallbackMsg = pendingMessages.peek() ?: lastAlertBody
+            ReminderReceiver.postFallbackFullScreenNotification(
+                context = applicationContext,
+                title = lastAlertTitle,
+                contentText = fallbackMsg,
+                reasonNote = "TTS speak() kept failing"
+            )
+            ReminderRepository.recordAlarmEvent(
+                applicationContext,
+                "TTS speak retries exhausted, notification shown"
+            )
+            if (reminderToRemoveId != -1) {
+                ReminderRepository.removeReminderRecordOnly(applicationContext, reminderToRemoveId)
+                reminderToRemoveId = -1
+            }
+            abandonAudioFocus()
+            stopSelfKeepingNotification()
         }
     }
 
     private fun onUtteranceFinished() {
         if (activeUtterances.decrementAndGet() <= 0 && pendingMessages.isEmpty()) {
-            ReminderRepository.recordAlarmEvent(applicationContext, "speech finished")
             if (reminderToRemoveId != -1) {
                 ReminderRepository.removeReminderRecordOnly(applicationContext, reminderToRemoveId)
                 reminderToRemoveId = -1
@@ -427,8 +479,8 @@ class TtsAlertService : Service(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun requestAudioFocus() {
-        try {
+    private fun requestAudioFocus(): Boolean {
+        return try {
             val attrs = AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_ALARM)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
@@ -438,9 +490,11 @@ class TtsAlertService : Service(), TextToSpeech.OnInitListener {
                 .setAudioAttributes(attrs)
                 .build()
             focusRequest = req
-            audioManager?.requestAudioFocus(req)
+            val res = audioManager?.requestAudioFocus(req) ?: AudioManager.AUDIOFOCUS_REQUEST_FAILED
+            res == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         } catch (t: Throwable) {
             t.printStackTrace()
+            false
         }
     }
 
