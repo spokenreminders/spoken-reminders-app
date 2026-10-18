@@ -21,7 +21,7 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import androidx.core.app.NotificationCompat
 import java.util.Locale
-import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.ConcurrentLinkedDeque
 import java.util.concurrent.atomic.AtomicInteger
 
 class TtsAlertService : Service(), TextToSpeech.OnInitListener {
@@ -30,13 +30,14 @@ class TtsAlertService : Service(), TextToSpeech.OnInitListener {
         private const val CHANNEL_ID = "tts_reminder_alert_channel"
         private const val NOTIFICATION_ID = 1001
         private const val MAX_TTS_ATTEMPTS = 4
+        private const val MAX_SPEAK_ERROR_RETRIES = 2
         private val RETRY_DELAYS_MS = longArrayOf(1500L, 3000L, 6000L)
     }
 
     private var tts: TextToSpeech? = null
     private var isTtsInitialized = false
     private var isDestroyed = false
-    private val pendingMessages = ConcurrentLinkedQueue<String>()
+    private val pendingMessages = ConcurrentLinkedDeque<String>()
     private val activeUtterances = AtomicInteger(0)
     private var wakeLock: PowerManager.WakeLock? = null
     private var audioManager: AudioManager? = null
@@ -45,6 +46,7 @@ class TtsAlertService : Service(), TextToSpeech.OnInitListener {
     private var reminderToRemoveId: Int = -1
 
     private var currentAttempt = 0
+    private var speakErrorRetries = 0
     private var currentEngineTried: String? = null
     private var defaultEnginePkg: String? = null
     private val candidateEngines = mutableListOf<String>()
@@ -297,7 +299,7 @@ class TtsAlertService : Service(), TextToSpeech.OnInitListener {
                     "TTS ready (engine $activeEnginePkg)"
                 )
 
-                while (pendingMessages.isNotEmpty()) {
+                while (pendingMessages.isNotEmpty() && isTtsInitialized) {
                     val msg = pendingMessages.poll()
                     if (msg != null) {
                         speakOutLoud(msg)
@@ -362,8 +364,52 @@ class TtsAlertService : Service(), TextToSpeech.OnInitListener {
         }
         val speakResult = tts?.speak(text, TextToSpeech.QUEUE_ADD, params, utteranceId)
         if (speakResult == TextToSpeech.ERROR) {
-            ReminderRepository.recordAlarmEvent(applicationContext, "TTS speak() returned ERROR")
-            onUtteranceFinished()
+            activeUtterances.decrementAndGet()
+            pendingMessages.addFirst(text)
+
+            if (speakErrorRetries < MAX_SPEAK_ERROR_RETRIES) {
+                speakErrorRetries++
+                ReminderRepository.recordAlarmEvent(
+                    applicationContext,
+                    "TTS speak() returned ERROR, rebuilding engine (retry $speakErrorRetries)"
+                )
+                try {
+                    tts?.stop()
+                    tts?.shutdown()
+                } catch (t: Throwable) {
+                    t.printStackTrace()
+                }
+                tts = null
+                isTtsInitialized = false
+                startTtsAttempt(attemptNumber = 1, explicitEngine = null)
+            } else {
+                try {
+                    tts?.stop()
+                    tts?.shutdown()
+                } catch (t: Throwable) {
+                    t.printStackTrace()
+                }
+                tts = null
+                isTtsInitialized = false
+
+                val fallbackMsg = pendingMessages.peek() ?: lastAlertBody
+                ReminderReceiver.postFallbackFullScreenNotification(
+                    context = applicationContext,
+                    title = lastAlertTitle,
+                    contentText = fallbackMsg,
+                    reasonNote = "TTS speak() kept failing"
+                )
+                ReminderRepository.recordAlarmEvent(
+                    applicationContext,
+                    "TTS speak retries exhausted, notification shown"
+                )
+                if (reminderToRemoveId != -1) {
+                    ReminderRepository.removeReminderRecordOnly(applicationContext, reminderToRemoveId)
+                    reminderToRemoveId = -1
+                }
+                abandonAudioFocus()
+                stopSelfKeepingNotification()
+            }
         }
     }
 
@@ -513,3 +559,4 @@ class TtsAlertService : Service(), TextToSpeech.OnInitListener {
             .build()
     }
 }
+

@@ -12,7 +12,7 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = 100 + (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0)
-        versionName = "1.1.5"
+        versionName = "1.1.6"
     }
 
     signingConfigs {
@@ -49,3 +49,4 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.2")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.2")
 }
+

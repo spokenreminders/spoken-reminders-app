@@ -497,22 +497,12 @@ fun UpdateAvailableDialog(
             )
         },
         confirmButton = {
-            Button(
-                onClick = onDownload,
-                modifier = Modifier.semantics {
-                    contentDescription = "Download update version $newVersion"
-                }
-            ) {
+            Button(onClick = onDownload) {
                 Text("Download update")
             }
         },
         dismissButton = {
-            TextButton(
-                onClick = onDismiss,
-                modifier = Modifier.semantics {
-                    contentDescription = "Not now"
-                }
-            ) {
+            TextButton(onClick = onDismiss) {
                 Text("Not now")
             }
         }
@@ -1230,18 +1220,12 @@ fun SettingsDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(
-                    text = "Review permission setup, test screen-off speech, check for app updates, or open system settings.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
                 Button(
                     onClick = onScheduleTestAlarm,
                     modifier = Modifier
                         .fillMaxWidth()
                         .semantics {
-                            contentDescription = "Test alarm in 1 minute. Schedules a spoken test reminder 60 seconds from now so you can lock the screen and test."
+                            contentDescription = "Test alarm in 1 minute"
                         }
                 ) {
                     Text("Test alarm in 1 minute")
@@ -1282,7 +1266,7 @@ fun SettingsDialog(
                             contentDescription = if (isCheckingForUpdate) {
                                 "Checking for updates"
                             } else {
-                                "Check for updates. Checks for a newer app release and announces the result out loud."
+                                "Check for updates"
                             }
                         }
                 ) {
@@ -1299,7 +1283,7 @@ fun SettingsDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Text(
                             text = "Last update check",
@@ -1350,3 +1334,4 @@ fun SettingsDialog(
         }
     )
 }
+
