@@ -1,6 +1,5 @@
 {
-  "id": "2026-10-18-test-message-2",
+  "id": "2026-10-18-test-message-3",
   "title": "Spoken Reminders",
-  "message": "This is test message number two from Harish. If your phone showed or spoke this, broadcast messages are working.",
-  "speak": true
+  "message": "Test message number three. This one should arrive as a notification only. Nothing should be spoken aloud."
 }
