@@ -1351,12 +1351,6 @@ fun SettingsDialog(
                 ) {
                     Text("Open App System Settings")
                 }
-
-                Text(
-                    text = "This app counts how it is used - opens, taps and reminders - to help us improve it. It never collects your reminder text or any personal details.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
         },
         confirmButton = {
