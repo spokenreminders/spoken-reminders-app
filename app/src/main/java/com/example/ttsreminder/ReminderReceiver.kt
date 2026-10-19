@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import com.google.firebase.analytics.FirebaseAnalytics
 
 class ReminderReceiver : BroadcastReceiver() {
 
@@ -180,6 +181,11 @@ class ReminderReceiver : BroadcastReceiver() {
                 val title = intent.getStringExtra(EXTRA_TITLE) ?: "You have a scheduled reminder."
                 val category = intent.getStringExtra(EXTRA_CATEGORY) ?: "General"
                 val recurring = intent.getBooleanExtra(EXTRA_RECURRING, false)
+
+                try {
+                    FirebaseAnalytics.getInstance(context.applicationContext).logEvent("reminder_fired", null)
+                } catch (ignored: Throwable) {
+                }
 
                 ReminderRepository.recordAlarmEvent(context, "alarm received ($title)")
 

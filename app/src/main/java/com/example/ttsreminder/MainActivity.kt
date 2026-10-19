@@ -34,6 +34,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import com.google.firebase.analytics.FirebaseAnalytics
+import com.google.firebase.ktx.Firebase
+import com.google.firebase.messaging.ktx.messaging
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -44,9 +47,23 @@ import java.util.Locale
 import java.util.TimeZone
 import kotlin.random.Random
 
+private fun logCountAnalyticsEvent(context: Context, eventName: String) {
+    try {
+        FirebaseAnalytics.getInstance(context.applicationContext).logEvent(eventName, null)
+    } catch (ignored: Throwable) {
+    }
+}
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (savedInstanceState == null) {
+            logCountAnalyticsEvent(applicationContext, "app_opened")
+            try {
+                Firebase.messaging.subscribeToTopic("all")
+            } catch (ignored: Throwable) {
+            }
+        }
         setContent {
             SpokenRemindersTheme {
                 MainAppScreen()
@@ -301,6 +318,7 @@ fun MainAppScreen() {
                             onAddClick = { showAddReminderDialog = true },
                             onDelete = { reminder ->
                                 ReminderRepository.deleteReminder(context, reminder.id)
+                                logCountAnalyticsEvent(context, "reminder_deleted")
                                 scope.launch {
                                     val result = snackbarHostState.showSnackbar(
                                         message = "Reminder deleted",
@@ -366,6 +384,7 @@ fun MainAppScreen() {
                 showSetupScreen = true
             },
             onScheduleTestAlarm = {
+                logCountAnalyticsEvent(context, "test_alarm_tapped")
                 val triggerAt = System.currentTimeMillis() + 60_000L
                 val testReminder = Reminder(
                     id = Random.nextInt(100000, 499999),
@@ -385,6 +404,7 @@ fun MainAppScreen() {
                 }
             },
             onCheckForUpdates = {
+                logCountAnalyticsEvent(context, "update_check_tapped")
                 if (!isCheckingForUpdate) {
                     isCheckingForUpdate = true
                     scope.launch {
@@ -452,6 +472,7 @@ fun MainAppScreen() {
                     recurring = recurring
                 )
                 ReminderRepository.addReminder(context, newReminder)
+                logCountAnalyticsEvent(context, "reminder_created")
                 remindersList = ReminderRepository.getReminders(context)
                 lastAlarmEvent = ReminderRepository.getLastAlarmEvent(context)
                 showAddReminderDialog = false
@@ -1288,7 +1309,7 @@ fun SettingsDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Text(
                             text = "Last update check",
@@ -1330,6 +1351,12 @@ fun SettingsDialog(
                 ) {
                     Text("Open App System Settings")
                 }
+
+                Text(
+                    text = "This app counts how it is used - opens, taps and reminders - to help us improve it. It never collects your reminder text or any personal details.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         },
         confirmButton = {
@@ -1339,4 +1366,3 @@ fun SettingsDialog(
         }
     )
 }
-

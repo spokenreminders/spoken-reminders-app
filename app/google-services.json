@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "206592490874",
+    "project_id": "spoken-reminders-39028",
+    "storage_bucket": "spoken-reminders-39028.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:206592490874:android:00b5dbeb7f0f6c01a16ac3",
+        "android_client_info": {
+          "package_name": "com.example.ttsreminder"
+      }
+    },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAB7S0X_7kmWyAsuYPubtTAOuKzhFQgnss"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
